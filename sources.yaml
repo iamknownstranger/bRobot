@@ -1,0 +1,31 @@
+# Sources the worker fetches. Each entry maps to a row in the `sources` table
+# (yaml wins for config fields; runtime stats live only in the DB).
+#
+# type: rss | imap | http_page
+# schedule: fetch interval, e.g. "30m", "2h", "1d"
+# status: active | shadow | paused | killed
+#   shadow = fetched, extracted, scored, logged — but never notified.
+#   Shadow sources are candidates the critic proposes for promotion after 14 days.
+#
+# The imap source reads credentials from FREEBIE_IMAP_HOST / FREEBIE_IMAP_USER /
+# FREEBIE_IMAP_PASSWORD env vars (never from this file).
+
+sources:
+  - id: desidime-freebies-rss
+    type: rss
+    url: https://www.desidime.com/deals/freebies.rss
+    schedule: 2h
+    status: active
+
+  - id: freebies-inbox
+    type: imap
+    url: ""            # host/user come from env; url unused for imap
+    schedule: 30m
+    status: paused     # TODO: set active once the dedicated inbox exists
+    folder: INBOX
+
+  - id: example-promo-page
+    type: http_page
+    url: https://example.com/offers
+    schedule: 1d
+    status: paused     # TODO: replace with a real page worth diff-watching

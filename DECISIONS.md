@@ -35,3 +35,30 @@ the bottom of each phase section.
 - **Migration runner:** `schema_migrations` bookkeeping table is created by
   the connection helper itself (not a migration) so "pending migrations"
   can be detected on a virgin DB.
+
+## Phase 2 — pipeline core
+
+- **Injection boundary implementation:** instructions go verbatim as the
+  system message (loaded only from `prompts/*.md`); untrusted payloads are
+  JSON-serialized into the user message between `<<DATA-<random hex>>>`
+  sentinels regenerated per call (`llm.build_messages` is pure so tests can
+  assert the separation).
+- **Structured output detection:** Ollama >= 0.5.0 (via `GET /api/version`)
+  gets `format: <json schema>`; older or undetectable versions fall back to
+  `format: "json"`. Detected once per client, at startup.
+- **Push budget enforced at routing time**, not send time: when today's
+  `push_sent` events plus unsent notify outbox rows reach the limit, further
+  pushes are demoted to the digest and a `route_demoted` event is recorded
+  (the critic can see demotions). Deadline nags bypass the router entirely.
+- **Shadow sources** are fetched/extracted/scored normally but their would-be
+  pushes/digests are recorded as drops with reason `shadow_source` — "scored
+  and logged but never notified" with the simplest possible mechanism.
+- **Schedule syntax in sources.yaml** is a plain interval (`30m`, `2h`, `1d`)
+  rather than cron — boring, testable, and enough for feed polling.
+- **`prompts_version`** = git short-sha of the last commit touching
+  `prompts/` (falls back to a content hash outside git, prefixed `nogit-`).
+- **http_page fetcher baseline:** the first fetch of a page stores the hash
+  and emits nothing — only subsequent *changes* become items, avoiding a
+  notification storm on first run.
+- **imap fetcher** reads UNSEEN messages and flags them Seen; the message-id
+  based pseudo-URL (`imap://INBOX/<message-id>`) feeds the normal dedupe.

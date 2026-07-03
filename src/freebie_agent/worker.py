@@ -7,14 +7,25 @@ code path that applies them.
 from __future__ import annotations
 
 import argparse
+import json
+import logging
+import sqlite3
 import sys
+import threading
 from datetime import timedelta
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+from apscheduler.schedulers.blocking import BlockingScheduler
+
 from freebie_agent import db as dbmod
-from freebie_agent import ledger
+from freebie_agent import ledger, pipeline, sourcecfg
 from freebie_agent.config import Config, load_or_exit
+from freebie_agent.deadlines import deadline_scan
+from freebie_agent.fetchers import build_fetcher
+from freebie_agent.llm import OllamaClient
 from freebie_agent.logs import register_secret, setup_logging
+from freebie_agent.models import SourceStatus
 
 
 def cmd_migrate(cfg: Config) -> int:
@@ -69,16 +80,171 @@ def cmd_stats(cfg: Config) -> int:
     return 0
 
 
+def _build_llm(cfg: Config) -> OllamaClient:
+    return OllamaClient(
+        host=cfg.ollama_host,
+        model=cfg.ollama_model,
+        prompts_dir=cfg.paths.prompts,
+        temperature=cfg.ollama_temperature,
+        timeout_seconds=cfg.ollama_timeout_seconds,
+        retries=cfg.ollama_retries,
+    )
+
+
+def _sync_sources(conn: sqlite3.Connection, cfg: Config) -> list[dict[str, object]]:
+    entries = sourcecfg.load_sources(cfg.paths.sources)
+    for entry in entries:
+        ledger.sync_source(
+            conn,
+            source_id=str(entry["id"]),
+            type_=str(entry["type"]),
+            url=str(entry.get("url", "")),
+            schedule=str(entry.get("schedule", "")),
+            status=SourceStatus(str(entry.get("status", "active"))),
+        )
+    return entries
+
+
+def _fetchable(entry: dict[str, object]) -> bool:
+    """active and shadow sources are fetched; paused/killed are not."""
+    return str(entry.get("status", "active")) in (
+        SourceStatus.ACTIVE.value,
+        SourceStatus.SHADOW.value,
+    )
+
+
+def run_pipeline_once(cfg: Config) -> dict[str, int]:
+    conn = dbmod.connect(cfg.paths.db)
+    llm = _build_llm(cfg)
+    try:
+        entries = _sync_sources(conn, cfg)
+        fetchers = [build_fetcher(e) for e in entries if _fetchable(e)]
+        return pipeline.run_pass(conn, cfg, llm, fetchers)
+    finally:
+        llm.close()
+        conn.close()
+
+
+class _MetricsHandler(BaseHTTPRequestHandler):
+    """Plain-text last-24h counters on localhost (opt-in via [metrics])."""
+
+    db_path: Path  # set on the subclass created in _start_metrics_server
+
+    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if self.path != "/metrics":
+            self.send_error(404)
+            return
+        conn = dbmod.connect(self.db_path)
+        try:
+            since = ledger.utcnow() - timedelta(hours=24)
+            counters = ledger.counters_since(conn, since)
+            llm = ledger.llm_stats_since(conn, since)
+        finally:
+            conn.close()
+        lines = [f"freebie_{name} {value}" for name, value in sorted(counters.items())]
+        lines += [f"freebie_{name} {value}" for name, value in sorted(llm.items())]
+        body = "\n".join(lines) + "\n"
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(body.encode())
+
+    def log_message(self, format: str, *args: object) -> None:
+        logging.getLogger("metrics").info(format % args)
+
+
+def _start_metrics_server(cfg: Config) -> None:
+    handler = type("Handler", (_MetricsHandler,), {"db_path": cfg.paths.db})
+    server = HTTPServer(("127.0.0.1", cfg.metrics_port), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True, name="metrics")
+    thread.start()
+    logging.getLogger("worker").info(
+        "metrics endpoint up", extra={"ctx": {"port": cfg.metrics_port}}
+    )
+
+
+def run_scheduler(cfg: Config) -> None:
+    """APScheduler wiring: per-source fetch jobs, extract+score sweep, daily
+    digest, question-TTL expiry, deadline nag scan."""
+    log = logging.getLogger("worker")
+    conn = dbmod.connect(cfg.paths.db)
+    llm = _build_llm(cfg)
+    entries = _sync_sources(conn, cfg)
+    scheduler = BlockingScheduler(timezone="UTC")
+
+    def fetch_job(entry: dict[str, object]) -> None:
+        fetcher = build_fetcher(entry)
+        pipeline.fetch_source(conn, fetcher)
+        profile_text = cfg.paths.profile.read_text(encoding="utf-8")
+        pipeline.extract_stage(conn, llm)
+        pipeline.score_stage(conn, cfg, llm, profile_text)
+
+    for entry in entries:
+        if not _fetchable(entry):
+            continue
+        minutes = sourcecfg.parse_schedule_minutes(
+            str(entry.get("schedule", "")), cfg.default_fetch_minutes
+        )
+        scheduler.add_job(
+            fetch_job,
+            "interval",
+            minutes=minutes,
+            args=[entry],
+            id=f"fetch:{entry['id']}",
+            next_run_time=ledger.utcnow(),
+            max_instances=1,
+            coalesce=True,
+        )
+
+    digest_hour, digest_minute = (int(p) for p in cfg.digest_send_at.split(":"))
+    scheduler.add_job(
+        lambda: pipeline.build_digest(conn, cfg),
+        "cron",
+        hour=digest_hour,
+        minute=digest_minute,
+        id="digest",
+    )
+    scheduler.add_job(
+        lambda: ledger.expire_stale_questions(conn, cfg.question_ttl_hours),
+        "interval",
+        hours=1,
+        id="question-ttl",
+    )
+    scheduler.add_job(
+        lambda: deadline_scan(conn, cfg),
+        "interval",
+        minutes=10,
+        id="deadline-scan",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    if cfg.metrics_enabled:
+        _start_metrics_server(cfg)
+
+    log.info(
+        "worker scheduler starting",
+        extra={"ctx": {"sources": [str(e["id"]) for e in entries if _fetchable(e)]}},
+    )
+    try:
+        scheduler.start()
+    finally:
+        llm.close()
+        conn.close()
+
+
 def cmd_run(cfg: Config, once: bool) -> int:
     conn = dbmod.connect(cfg.paths.db)
     try:
         dbmod.assert_migrated(conn, dbmod.default_migrations_dir())
     finally:
         conn.close()
-    # Scheduler wiring lands in phase 2 (see build plan); until then the run
-    # mode is a clear error, not a silent no-op.
-    print("fatal: pipeline scheduler not implemented yet (phase 2)", file=sys.stderr)
-    return 4
+    if once:
+        stats = run_pipeline_once(cfg)
+        print(json.dumps(stats))
+        return 0
+    run_scheduler(cfg)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
