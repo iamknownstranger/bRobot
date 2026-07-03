@@ -18,6 +18,3 @@ __pycache__/
 dist/
 build/
 *.egg-info/
-
-# Local config (config.toml is machine-local; commit config.example.toml only)
-config.toml

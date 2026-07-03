@@ -505,6 +505,8 @@ class Gateway:
                     if proposal is not None:
                         text, keyboard = render.proposal_card(proposal)
                         await context.bot.send_message(chat_id, text, reply_markup=keyboard)
+                elif kind == "text":
+                    await context.bot.send_message(chat_id, str(payload.get("text", ""))[:4000])
                 else:
                     await context.bot.send_message(chat_id, json.dumps(payload)[:1000])
             except Exception:

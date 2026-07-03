@@ -66,7 +66,7 @@ mypy_path = "src"
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
-module = ["feedparser", "feedparser.*", "apscheduler.*"]
+module = ["feedparser", "feedparser.*", "apscheduler.*", "run_eval"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

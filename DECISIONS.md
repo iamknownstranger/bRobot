@@ -91,3 +91,33 @@ the bottom of each phase section.
 - **add_source intent appends a `status: shadow` entry to sources.yaml and
   commits**; promotion to active is the critic's job after the 14-day shadow
   window.
+
+## Phase 5 — critic
+
+- **config.toml is committed** (it holds no secrets — those are env-only), so
+  the critic's threshold_change proposals can be real git-committed diffs
+  against the running config. `config.example.toml` remains the documented
+  reference copy. The `.gitignore` entry from phase 1 was removed.
+- **Unified diffs are applied by a small strict pure-Python applier**
+  (`difftools.py`) instead of `git apply` — git's path resolution differs
+  inside/outside a worktree and the staging dir used by the eval gate is not
+  a repo. The applier refuses fuzzy matches: a stale proposal fails loudly.
+- **Eval gate runs twice for prompt diffs:** at propose time (a regressing
+  candidate never even becomes a pending proposal — recorded as a
+  `proposal_gate_blocked` event) and again post-write at apply time (a
+  regression reverts the file via git checkout and rejects the proposal).
+- **Shadow promotion signal** = `route_demoted` events with reason
+  `shadow_source` and score >= push threshold ("would-have-pushed"), >= 3 of
+  them after >= 14 days in shadow.
+- **Kill heuristic** = active source with >= 30 items and 0 claims in the
+  lookback window. Conservative on purpose; the operator still approves.
+- **Auto-apply tier** is a kv flag (`auto_apply_source_change`) flipped by a
+  special proposal whose diff carries the `AUTO-APPLY-SOURCE-CHANGES` marker
+  (a behavioral change has no file to diff). It is proposed automatically
+  once >= 5 source_change proposals have been applied, per spec.
+- **Critic LLM is optional and cosmetic:** all decisions are SQL heuristics;
+  `[critic].llm_backend` (a model tag, or "none") only rewords rationales
+  via prompts/critic.md, and any LLM failure falls back to the deterministic
+  wording.
+- **freebie-critic default mode is a long-running weekly scheduler** (three
+  long-running processes per spec); `--once` gives the on-demand run.

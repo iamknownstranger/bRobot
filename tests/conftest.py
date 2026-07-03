@@ -35,7 +35,7 @@ def repo_copy(tmp_path: Path) -> Path:
         src = REPO_ROOT / name
         if src.exists():
             shutil.copytree(src, tmp_path / name)
-    for name in ("profile.md", "sources.yaml"):
+    for name in ("profile.md", "sources.yaml", ".gitignore"):
         src = REPO_ROOT / name
         if src.exists():
             shutil.copy(src, tmp_path / name)
