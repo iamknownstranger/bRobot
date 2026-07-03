@@ -1,0 +1,75 @@
+[project]
+name = "freebie-agent"
+version = "0.1.0"
+description = "Self-improving freebie-hunting agent: fetch, extract, score, notify, learn."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+dependencies = [
+    "python-telegram-bot==21.11.1",
+    "apscheduler==3.11.0",
+    "httpx==0.28.1",
+    "feedparser==6.0.11",
+    "pyyaml==6.0.2",
+    "python-dotenv==1.1.0",
+]
+
+[project.scripts]
+freebie-worker = "freebie_agent.worker:main"
+freebie-bot = "freebie_agent.bot.gateway:main"
+freebie-critic = "freebie_agent.critic.run:main"
+freebie-skill = "freebie_agent.skills_cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest==8.3.5",
+    "pytest-asyncio==0.25.3",
+    "ruff==0.11.13",
+    "mypy==1.15.0",
+    "types-pyyaml==6.0.12.20250516",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/freebie_agent"]
+
+# Primary package index SHOULD be the Auros PyPI mirror (pypi.auros.be).
+# It was unreachable from the initial build environment (HTTP 502 via the
+# egress proxy), and uv hard-fails on an unreachable index, so pypi.org is
+# the active index and uv.lock is resolved against it. On a network that can
+# reach the mirror, uncomment the auros block below and run `uv lock` to
+# re-pin against it. See DECISIONS.md ("Package index fallback").
+#
+# [[tool.uv.index]]
+# name = "auros"
+# url = "https://pypi.auros.be/simple"
+# default = true
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["feedparser", "feedparser.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

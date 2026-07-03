@@ -1,0 +1,62 @@
+# Copy to config.toml. Loaded once at startup by every entrypoint.
+# Missing required keys => the process exits non-zero with a clear message.
+# Secrets NEVER live here — they come from the environment (.env).
+
+[paths]
+db = "data/ledger.db"
+logs = "data/logs"
+prompts = "prompts"
+profile = "profile.md"
+sources = "sources.yaml"
+eval_items = "eval/items.jsonl"
+
+[thresholds]
+# score >= push  -> real-time Telegram push
+# digest <= score < push -> daily digest
+# score < digest -> dropped (kept in DB for the critic)
+push = 80
+digest = 50
+
+[rate_limit]
+# Max real-time pushes per calendar day. Deadline nags at T-24h/T-2h are exempt.
+pushes_per_day = 5
+
+[digest]
+# Local time (HH:MM, 24h) the daily digest is sent.
+send_at = "09:00"
+top_n = 10
+
+[deadlines]
+# Hours before due_at at which nags are emitted.
+nag_hours = [72, 24, 2]
+
+[questions]
+# Hours until an unanswered agent question expires as no_answer.
+ttl_hours = 24
+
+[ollama]
+# Host and model come from env (OLLAMA_HOST / OLLAMA_MODEL). These tune the client.
+timeout_seconds = 120
+retries = 2
+temperature = 0.0
+
+[metrics]
+# Opt-in plain-text /metrics endpoint on localhost.
+enabled = false
+port = 9187
+
+[critic]
+# Weekly schedule (cron day-of-week / hour, local time).
+day_of_week = "sun"
+hour = 8
+lookback_weeks = 3
+# Shadow sources must observe for this many days before a promotion proposal.
+shadow_days = 14
+# LLM used only to draft diff wording; "none" keeps the critic fully deterministic.
+llm_backend = "none"
+
+[worker]
+# Fallback fetch interval (minutes) for sources without an explicit schedule.
+default_fetch_minutes = 60
+# How often the bot polls the outbox table (seconds).
+outbox_poll_seconds = 5

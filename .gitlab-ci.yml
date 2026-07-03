@@ -1,0 +1,35 @@
+stages:
+  - lint
+  - typecheck
+  - test
+
+image: python:3.12-slim
+
+variables:
+  UV_LINK_MODE: copy
+  UV_CACHE_DIR: .uv-cache
+
+cache:
+  key: uv-$CI_COMMIT_REF_SLUG
+  paths:
+    - .uv-cache
+
+before_script:
+  - pip install --no-cache-dir uv
+  - uv sync --frozen
+
+ruff:
+  stage: lint
+  script:
+    - uv run ruff check src tests eval
+    - uv run ruff format --check src tests eval
+
+mypy:
+  stage: typecheck
+  script:
+    - uv run mypy --strict src/
+
+pytest:
+  stage: test
+  script:
+    - uv run pytest -q

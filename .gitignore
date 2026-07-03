@@ -1,0 +1,23 @@
+# Runtime data — never commit the ledger, logs, or local state
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Local config (config.toml is machine-local; commit config.example.toml only)
+config.toml
