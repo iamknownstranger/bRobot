@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -40,6 +41,13 @@ def repo_copy(tmp_path: Path) -> Path:
             shutil.copy(src, tmp_path / name)
     shutil.copy(REPO_ROOT / "config.example.toml", tmp_path / "config.toml")
     (tmp_path / "data").mkdir(exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.local"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", "commit", "-qm", "init"], cwd=tmp_path, check=True
+    )
     return tmp_path
 
 

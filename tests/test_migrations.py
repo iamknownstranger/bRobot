@@ -45,10 +45,10 @@ def test_worker_refuses_run_with_pending_migration(cfg: Config, tmp_path: Path) 
     conn = dbmod.connect(cfg.paths.db)
     try:
         dbmod.migrate(conn, migrations)
-        (migrations / "0002_new_column.sql").write_text(
+        (migrations / "0003_new_column.sql").write_text(
             "ALTER TABLE items ADD COLUMN test_col TEXT;"
         )
-        with pytest.raises(dbmod.PendingMigrationsError, match="0002_new_column.sql"):
+        with pytest.raises(dbmod.PendingMigrationsError, match="0003_new_column.sql"):
             dbmod.assert_migrated(conn, migrations)
     finally:
         conn.close()

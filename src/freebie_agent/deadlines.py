@@ -14,7 +14,7 @@ from datetime import datetime
 
 from freebie_agent import ledger
 from freebie_agent.config import Config
-from freebie_agent.models import DeadlineState
+from freebie_agent.models import DeadlineKind, DeadlineState
 
 
 def due_nag_mark(
@@ -48,6 +48,21 @@ def deadline_scan(conn: sqlite3.Connection, cfg: Config, now: datetime | None = 
     for row in ledger.open_deadlines(conn):
         due_at = ledger.parse_iso(row["due_at"])
         sent = tuple(json.loads(row["nags_sent"]))
+        if row["kind"] == DeadlineKind.SHIPPING_CHECK.value:
+            # No pre-nags: at due time this becomes the worth-it question
+            # (👍/👎), which writes claims.worth_it — the key training signal.
+            if now >= due_at:
+                payload = json.loads(row["payload_json"])
+                ledger.enqueue_outbox(conn, "worth_it", payload)
+                ledger.set_deadline_state(conn, int(row["id"]), DeadlineState.DONE)
+                ledger.add_event(
+                    conn,
+                    "worth_it_question_sent",
+                    {"claim_id": payload.get("claim_id")},
+                    item_id=row["item_id"],
+                )
+                nags += 1
+            continue
         if now >= due_at:
             ledger.set_deadline_state(conn, int(row["id"]), DeadlineState.MISSED)
             ledger.add_event(

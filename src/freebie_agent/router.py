@@ -32,11 +32,14 @@ def effective_bucket(
     score: int,
     thresholds: Thresholds,
     pushes_per_day: int,
+    category: str | None = None,
 ) -> tuple[Bucket, str | None]:
     """Bucket after operational rules. Returns (bucket, demotion_reason).
 
     - Shadow sources are scored and logged but never notified: their pushes
       and digests are recorded as drop-with-reason.
+    - Muted categories (/mute) are dropped outright.
+    - While paused (/pause), pushes demote to the digest.
     - The daily real-time push budget demotes overflow pushes to the digest
       (deadline nags are exempt — they don't go through this router).
     """
@@ -46,7 +49,13 @@ def effective_bucket(
         if bucket is not Bucket.DROP:
             return Bucket.DROP, "shadow_source"
         return bucket, None
+    if category and category.strip().lower() in ledger.muted_categories(conn):
+        if bucket is not Bucket.DROP:
+            return Bucket.DROP, "muted_category"
+        return bucket, None
     if bucket is Bucket.PUSH:
+        if ledger.paused_until(conn) is not None:
+            return Bucket.DIGEST, "paused"
         pending = len([r for r in ledger.unsent_outbox(conn, limit=100) if r["kind"] == "notify"])
         if ledger.pushes_sent_today(conn) + pending >= pushes_per_day:
             return Bucket.DIGEST, "push_budget_exhausted"

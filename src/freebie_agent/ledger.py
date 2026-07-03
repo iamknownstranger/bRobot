@@ -527,3 +527,51 @@ def approved_proposal_count(conn: sqlite3.Connection, kind: ProposalKind) -> int
         (kind.value,),
     ).fetchone()
     return int(row["n"]) if row else 0
+
+
+# ---------------------------------------------------------------- kv state
+
+
+def kv_set(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?)"
+        " ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+        (key, value, iso(utcnow())),
+    )
+    conn.commit()
+
+
+def kv_get(conn: sqlite3.Connection, key: str) -> str | None:
+    row = _one(conn.execute("SELECT value FROM kv WHERE key = ?", (key,)))
+    return str(row["value"]) if row else None
+
+
+def set_paused_until(conn: sqlite3.Connection, until: datetime | None) -> None:
+    kv_set(conn, "paused_until", iso(until) if until else "")
+
+
+def paused_until(conn: sqlite3.Connection) -> datetime | None:
+    value = kv_get(conn, "paused_until")
+    if not value:
+        return None
+    until = parse_iso(value)
+    return until if until > utcnow() else None
+
+
+def muted_categories(conn: sqlite3.Connection) -> set[str]:
+    value = kv_get(conn, "muted_categories")
+    return set(json.loads(value)) if value else set()
+
+
+def mute_category(conn: sqlite3.Connection, category: str) -> set[str]:
+    cats = muted_categories(conn)
+    cats.add(category.strip().lower())
+    kv_set(conn, "muted_categories", json.dumps(sorted(cats)))
+    return cats
+
+
+def unmute_category(conn: sqlite3.Connection, category: str) -> set[str]:
+    cats = muted_categories(conn)
+    cats.discard(category.strip().lower())
+    kv_set(conn, "muted_categories", json.dumps(sorted(cats)))
+    return cats

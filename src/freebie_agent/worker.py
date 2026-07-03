@@ -165,19 +165,51 @@ def _start_metrics_server(cfg: Config) -> None:
 
 def run_scheduler(cfg: Config) -> None:
     """APScheduler wiring: per-source fetch jobs, extract+score sweep, daily
-    digest, question-TTL expiry, deadline nag scan."""
+    digest, question-TTL expiry, deadline nag scan.
+
+    APScheduler runs jobs on a thread pool, so every job opens its own
+    short-lived SQLite connection (WAL mode makes this cheap and safe).
+    """
     log = logging.getLogger("worker")
-    conn = dbmod.connect(cfg.paths.db)
+    setup_conn = dbmod.connect(cfg.paths.db)
+    try:
+        entries = _sync_sources(setup_conn, cfg)
+    finally:
+        setup_conn.close()
     llm = _build_llm(cfg)
-    entries = _sync_sources(conn, cfg)
     scheduler = BlockingScheduler(timezone="UTC")
 
     def fetch_job(entry: dict[str, object]) -> None:
-        fetcher = build_fetcher(entry)
-        pipeline.fetch_source(conn, fetcher)
-        profile_text = cfg.paths.profile.read_text(encoding="utf-8")
-        pipeline.extract_stage(conn, llm)
-        pipeline.score_stage(conn, cfg, llm, profile_text)
+        conn = dbmod.connect(cfg.paths.db)
+        try:
+            fetcher = build_fetcher(entry)
+            pipeline.fetch_source(conn, fetcher)
+            profile_text = cfg.paths.profile.read_text(encoding="utf-8")
+            pipeline.extract_stage(conn, llm)
+            pipeline.score_stage(conn, cfg, llm, profile_text)
+        finally:
+            conn.close()
+
+    def digest_job() -> None:
+        conn = dbmod.connect(cfg.paths.db)
+        try:
+            pipeline.build_digest(conn, cfg)
+        finally:
+            conn.close()
+
+    def question_ttl_job() -> None:
+        conn = dbmod.connect(cfg.paths.db)
+        try:
+            ledger.expire_stale_questions(conn, cfg.question_ttl_hours)
+        finally:
+            conn.close()
+
+    def deadline_job() -> None:
+        conn = dbmod.connect(cfg.paths.db)
+        try:
+            deadline_scan(conn, cfg)
+        finally:
+            conn.close()
 
     for entry in entries:
         if not _fetchable(entry):
@@ -197,21 +229,10 @@ def run_scheduler(cfg: Config) -> None:
         )
 
     digest_hour, digest_minute = (int(p) for p in cfg.digest_send_at.split(":"))
+    scheduler.add_job(digest_job, "cron", hour=digest_hour, minute=digest_minute, id="digest")
+    scheduler.add_job(question_ttl_job, "interval", hours=1, id="question-ttl")
     scheduler.add_job(
-        lambda: pipeline.build_digest(conn, cfg),
-        "cron",
-        hour=digest_hour,
-        minute=digest_minute,
-        id="digest",
-    )
-    scheduler.add_job(
-        lambda: ledger.expire_stale_questions(conn, cfg.question_ttl_hours),
-        "interval",
-        hours=1,
-        id="question-ttl",
-    )
-    scheduler.add_job(
-        lambda: deadline_scan(conn, cfg),
+        deadline_job,
         "interval",
         minutes=10,
         id="deadline-scan",
@@ -230,7 +251,6 @@ def run_scheduler(cfg: Config) -> None:
         scheduler.start()
     finally:
         llm.close()
-        conn.close()
 
 
 def cmd_run(cfg: Config, once: bool) -> int:

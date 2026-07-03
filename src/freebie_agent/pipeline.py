@@ -176,7 +176,15 @@ def score_stage(conn: sqlite3.Connection, cfg: Config, llm: OllamaClient, profil
             continue
         ledger.add_score(conn, int(item["id"]), score, reason, version, llm.model)
         scored += 1
-        route_item(conn, cfg, int(item["id"]), item["source_id"], score, reason)
+        route_item(
+            conn,
+            cfg,
+            int(item["id"]),
+            item["source_id"],
+            score,
+            reason,
+            category=str(extract.get("category", "")) or None,
+        )
     if scored:
         ledger.bump_counter(conn, "items_scored", scored)
     return scored
@@ -192,8 +200,11 @@ def route_item(
     source_id: str,
     score: int,
     reason: str,
+    category: str | None = None,
 ) -> Bucket:
-    bucket, demotion = effective_bucket(conn, source_id, score, cfg.thresholds, cfg.pushes_per_day)
+    bucket, demotion = effective_bucket(
+        conn, source_id, score, cfg.thresholds, cfg.pushes_per_day, category=category
+    )
     if demotion:
         ledger.add_event(
             conn, "route_demoted", {"reason": demotion, "score": score}, item_id=item_id

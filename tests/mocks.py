@@ -67,3 +67,65 @@ def scores_by_title(mapping: dict[str, int]) -> Callable[[dict[str, Any]], dict[
         raise AssertionError(f"no score mapping for {what!r}")
 
     return fn
+
+
+class FakeIntentLLM(FakeLLM):
+    """FakeLLM that also answers the intent prompt."""
+
+    def __init__(
+        self, intent: str = "chitchat", confidence: float = 0.9, args: dict[str, Any] | None = None
+    ) -> None:
+        super().__init__()
+        self.intent = intent
+        self.confidence = confidence
+        self.args = args or {}
+
+    def chat_json(
+        self,
+        prompt_name: str,
+        payload: dict[str, Any],
+        schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if prompt_name == "intent":
+            self.calls.append((prompt_name, payload))
+            return {"intent": self.intent, "confidence": self.confidence, "args": self.args}
+        return super().chat_json(prompt_name, payload, schema)
+
+
+class FakeBot:
+    """Records every outbound Telegram call; nothing leaves the process."""
+
+    def __init__(self) -> None:
+        self.sent: list[dict[str, Any]] = []
+        self.edited: list[dict[str, Any]] = []
+        self.answered: list[dict[str, Any]] = []
+
+    async def send_message(
+        self, chat_id: int, text: str, reply_markup: Any = None, **kwargs: Any
+    ) -> None:
+        self.sent.append({"chat_id": chat_id, "text": text, "reply_markup": reply_markup})
+
+    async def edit_message_text(
+        self,
+        text: str,
+        chat_id: int | None = None,
+        message_id: int | None = None,
+        reply_markup: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        self.edited.append(
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "reply_markup": reply_markup,
+            }
+        )
+
+    async def answer_callback_query(self, *args: Any, **kwargs: Any) -> bool:
+        self.answered.append({"args": args, "kwargs": kwargs})
+        return True
+
+    @property
+    def texts(self) -> list[str]:
+        return [m["text"] for m in self.sent]

@@ -62,3 +62,32 @@ the bottom of each phase section.
   notification storm on first run.
 - **imap fetcher** reads UNSEEN messages and flags them Seen; the message-id
   based pseudo-URL (`imap://INBOX/<message-id>`) feeds the normal dedupe.
+
+## Phase 3 — Telegram bot
+
+- **Worker ↔ bot transport is the DB.** The worker/critic enqueue outbound
+  messages into `outbox`; the bot's job queue polls it every
+  `[worker].outbox_poll_seconds`. No IPC, no ports, restart-safe.
+- **Claim flow is two-step:** ✅ Claim marks the claim `approved` and edits
+  the card into prepared human steps with 🎉 Claimed / ⚠️ Failed buttons; only
+  🎉 moves it to `claimed` (which schedules the +14d worth-it follow-up and
+  bumps the source's claim counter). The agent never executes a claim.
+- **Trial-cancel derivation:** approved trial/membership claims take the
+  extract's `deadline_iso` as the cancel-by date when present; otherwise the
+  bot asks for the renewal date (a `questions` row with the 24h TTL) and an
+  ISO date in any later owner message answers the newest open trial question.
+- **shipping_check deadlines have no pre-nags:** at due time the deadline
+  becomes the 👍/👎 worth-it question and is marked done, instead of the
+  T-72/24/2 nag ladder (which stays for trial/coupon/points/custom kinds).
+- **Sensitive-data refusal is pattern-based** (card-number runs, PAN/Aadhaar
+  shapes, OTP/password phrasing) and runs before any event write; the same
+  redaction filter scrubs all log records. Deliberately over-broad.
+- **/pause demotes pushes to the digest** (rather than dropping them) via a
+  `kv` row checked by the router; /mute drops the category outright. `kv`
+  is migration 0002.
+- **APScheduler jobs open their own SQLite connection per run** — the
+  default executor is a thread pool and sharing one connection across
+  threads is not worth the cleverness. WAL keeps this cheap.
+- **add_source intent appends a `status: shadow` entry to sources.yaml and
+  commits**; promotion to active is the critic's job after the 14-day shadow
+  window.
