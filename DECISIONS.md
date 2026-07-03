@@ -121,3 +121,18 @@ the bottom of each phase section.
   wording.
 - **freebie-critic default mode is a long-running weekly scheduler** (three
   long-running processes per spec); `--once` gives the on-demand run.
+
+## Phase 6 — skills & polish
+
+- **One CLI behind all skills:** `freebie-skill <scout|claim-prepare|
+  ledger-query|critic-run>` speaks JSON on stdin/stdout; each skill's
+  `scripts/*.sh` is a two-line shim that cd's to the repo root and execs it.
+  Logic lives in the package only.
+- **claim-prepare is read-only by construction** — it renders link,
+  requirements and manual steps and mutates nothing; outcome recording stays
+  behind the operator's Telegram buttons. The no-auto-claiming rule is a
+  property of the code paths, not just the docs.
+- **Fresh-clone check found a test bug** (now fixed + guarded by a comment in
+  conftest): with a real `.env` in the clone, `load_dotenv` resurrected env
+  vars the config fail-fast tests had deleted. The `env` fixture now runs in
+  a `.env`-free cwd.

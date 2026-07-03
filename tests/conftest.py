@@ -20,7 +20,11 @@ FAKE_TOKEN = "123456789:TESTFAKEtokenTESTFAKEtokenTESTFAKE0"
 
 
 @pytest.fixture
-def env(monkeypatch: pytest.MonkeyPatch) -> None:
+def env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Run in a .env-free cwd: a deployed clone has a real .env next to
+    # pytest's default cwd, and load_dotenv would resurrect deleted vars in
+    # the fail-fast tests (regression test guard, found on fresh-clone check).
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", FAKE_TOKEN)
     monkeypatch.setenv("TELEGRAM_OWNER_ID", "424242")
     monkeypatch.setenv("OLLAMA_HOST", "http://localhost:11434")
