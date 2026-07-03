@@ -126,8 +126,13 @@ class _Section:
 
 
 def load_env(dotenv_path: Path | None = None) -> dict[str, str]:
-    """Load .env (if present) and validate required environment variables."""
-    load_dotenv(dotenv_path)
+    """Load .env (if present) and validate required environment variables.
+
+    The default .env location is explicitly ./​.env (the runbook runs all
+    processes from the repo root) — not python-dotenv's stack-walking
+    discovery, which would find the repo's .env even when cwd is elsewhere.
+    """
+    load_dotenv(dotenv_path if dotenv_path is not None else Path(".env"))
     env: dict[str, str] = {}
     for key in REQUIRED_ENV:
         value = os.environ.get(key, "").strip()
