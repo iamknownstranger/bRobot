@@ -5,13 +5,8 @@ the bottom of each phase section.
 
 ## Phase 1 — skeleton
 
-- **Package index fallback.** `pypi.auros.be` was unreachable from the build
-  environment (HTTP 502 through the egress proxy) at initial lock time, and
-  uv hard-fails resolution when a configured index is unreachable — so the
-  active index in `pyproject.toml` is `pypi.org` and `uv.lock` is pinned
-  against it. The Auros mirror is kept as a ready-to-uncomment
-  `[[tool.uv.index]]` block marked `default = true`; on a network that can
-  reach the mirror, uncomment it and run `uv lock` to re-pin.
+- **Package index.** Standard `pypi.org` via uv's default — this is a
+  personal project with no private mirror. `uv.lock` pins all dependencies.
 - **Python 3.12 (not 3.13).** The spec says 3.12+; 3.12 is the boring choice
   and matches the widest wheel availability for pinned deps.
 - **stdlib `sqlite3`, not `aiosqlite`.** The pipeline is synchronous batch

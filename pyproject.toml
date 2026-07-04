@@ -36,22 +36,6 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/freebie_agent"]
 
-# Primary package index SHOULD be the Auros PyPI mirror (pypi.auros.be).
-# It was unreachable from the initial build environment (HTTP 502 via the
-# egress proxy), and uv hard-fails on an unreachable index, so pypi.org is
-# the active index and uv.lock is resolved against it. On a network that can
-# reach the mirror, uncomment the auros block below and run `uv lock` to
-# re-pin against it. See DECISIONS.md ("Package index fallback").
-#
-# [[tool.uv.index]]
-# name = "auros"
-# url = "https://pypi.auros.be/simple"
-# default = true
-
-[[tool.uv.index]]
-name = "pypi"
-url = "https://pypi.org/simple"
-
 [tool.ruff]
 line-length = 100
 target-version = "py312"
